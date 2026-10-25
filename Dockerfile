@@ -32,7 +32,8 @@ COPY . ${APP_DIR}
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY scripts/update-site.sh /usr/local/bin/update-site
 COPY scripts/container-entrypoint.sh /usr/local/bin/container-entrypoint
-RUN chmod +x /usr/local/bin/update-site /usr/local/bin/container-entrypoint \
+RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default \
+    && chmod +x /usr/local/bin/update-site /usr/local/bin/container-entrypoint \
     && update-site
 
 EXPOSE 80
