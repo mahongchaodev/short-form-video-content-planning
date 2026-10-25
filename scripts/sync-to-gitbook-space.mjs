@@ -46,15 +46,19 @@ if (options.dryRun) {
   process.exit(0);
 }
 
-const changeRequest = createChangeRequest(spaceId, subject);
+const changeRequest = options.changeRequest
+  ? getChangeRequest(spaceId, options.changeRequest)
+  : createChangeRequest(spaceId, subject);
 const changeRequestId = changeRequest.id ?? changeRequest.number;
 if (!changeRequestId) {
-  fail(`创建变更请求成功，但响应中没有 id/number：${JSON.stringify(changeRequest, null, 2)}`);
+  fail(`变更请求响应中没有 id/number：${JSON.stringify(changeRequest, null, 2)}`);
 }
 
-console.log(`Change request created: ${changeRequestId}`);
+console.log(`${options.changeRequest ? 'Change request resumed' : 'Change request created'}: ${changeRequestId}`);
 
-const existingTree = listSpacePages(spaceId);
+const existingTree = options.changeRequest
+  ? listChangeRequestPages(spaceId, changeRequestId)
+  : listSpacePages(spaceId);
 const existingPages = flattenPages(existingTree);
 const existingByPath = new Map(existingPages.map((page) => [page.path, page]));
 const knownIds = new Map();
@@ -86,6 +90,10 @@ for (const page of localPages) {
   }
 
   const existingId = knownIds.get(page.key);
+  if (options.skipExisting && existingId) {
+    console.log(`skipped: ${page.sourcePath} -> ${page.remotePath}`);
+    continue;
+  }
   const change = existingId
     ? {
         operation: 'update_page',
@@ -138,6 +146,8 @@ function parseArgs(args) {
     else if (arg === '--org') parsed.org = takeValue(args, ++index, arg);
     else if (arg === '--space') parsed.space = takeValue(args, ++index, arg);
     else if (arg === '--subject') parsed.subject = takeValue(args, ++index, arg);
+    else if (arg === '--change-request') parsed.changeRequest = takeValue(args, ++index, arg);
+    else if (arg === '--skip-existing') parsed.skipExisting = true;
     else fail(`未知参数：${arg}`);
   }
   return parsed;
@@ -373,8 +383,17 @@ function createChangeRequest(targetSpaceId, crSubject) {
   return runGitBookJson(['spaces', 'change-requests', 'create', targetSpaceId, '--subject', crSubject, '--json']);
 }
 
+function getChangeRequest(targetSpaceId, crId) {
+  return runGitBookJson(['spaces', 'change-requests', 'get', targetSpaceId, String(crId), '--json']);
+}
+
 function listSpacePages(targetSpaceId) {
   const result = runGitBookJson(['spaces', 'content', 'pages', 'list', targetSpaceId, '--json']);
+  return Array.isArray(result.pages) ? result.pages : [];
+}
+
+function listChangeRequestPages(targetSpaceId, crId) {
+  const result = runGitBookJson(['spaces', 'change-requests', 'content', 'get', targetSpaceId, String(crId), '--json']);
   return Array.isArray(result.pages) ? result.pages : [];
 }
 
