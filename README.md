@@ -1,4 +1,4 @@
-# Short-Form Video Content Planning
+# 短视频内容策划
 
 本目录是 **Short-Form Video Content Planning** Space 的本地内容真源。内容按赛道（领域）组织；每个赛道先定义账号定位，再按一期一期的内容规划沉淀实际视频的制作资料。
 
@@ -26,4 +26,13 @@
 
 ## GitBook 同步
 
-当前 Space 目录只初始化了本地内容真源，尚未绑定远程仓库或同步 GitBook。将父仓库推送到可访问的远程地址后，使用本目录作为 GitBook 的 `repoProjectDirectory` 配置同步，避免本地 Markdown 与 GitBook 页面双向编辑产生冲突。
+当前 Space 目录以本地 Markdown 为内容真源。可以使用脚本将本目录内容写入 GitBook 变更请求：
+
+```bash
+node scripts/sync-to-gitbook-space.mjs --dry-run
+node scripts/sync-to-gitbook-space.mjs --subject "Sync short-form video planning content"
+```
+
+脚本默认同步到 mhc 组织下的 **Short-Form Video Content Planning** Space（`PvV0Wl8B1sGKlplExkQj`），并会先校验 Space 属于授权组织 `lZHQ2oggO6j4W45vcGjT`。脚本只创建并填充 GitBook 变更请求，不会自动合并或发布；确认内容无误后，再到 GitBook 后台合并变更请求。
+
+如果后续改为 GitBook 官方 Git Sync，将父仓库推送到可访问的远程地址后，使用本目录作为 GitBook 的 `repoProjectDirectory` 配置同步，避免本地 Markdown 与 GitBook 页面双向编辑产生冲突。
