@@ -24,14 +24,14 @@
 
 ## GitBook 同步
 
-当前 Space 目录以本地 Markdown 为内容真源。可以使用脚本将本目录内容写入 GitBook 变更请求：
+当前 Space 目录以本地 Markdown 为内容真源。常规流程是：先提交并推送 Git，然后使用脚本将本目录内容写入 GitBook 变更请求，并在检查通过后合并发布正式 GitBook。
 
 ```bash
 node scripts/sync-to-gitbook-space.mjs --dry-run
 node scripts/sync-to-gitbook-space.mjs --subject "Sync short-form video planning content"
 ```
 
-脚本默认同步到 mhc 组织下的 **Short-Form Video Content Planning** Space（`PvV0Wl8B1sGKlplExkQj`），并会先校验 Space 属于授权组织 `lZHQ2oggO6j4W45vcGjT`。脚本只创建并填充 GitBook 变更请求，不会自动合并或发布；确认内容无误后，再到 GitBook 后台合并变更请求。
+脚本默认同步到 mhc 组织下的 **Short-Form Video Content Planning** Space（`PvV0Wl8B1sGKlplExkQj`），并会先校验 Space 属于授权组织 `lZHQ2oggO6j4W45vcGjT`。脚本只负责创建/更新 GitBook 变更请求；本项目默认在同步检查通过后继续执行 merge 发布正式 GitBook。若只想保留草稿，需要在任务中明确说明“不要合并/不要发布”。
 
 常用参数：
 

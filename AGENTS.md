@@ -6,8 +6,8 @@
 
 - 本目录是 **Short-Form Video Content Planning** 的本地 Markdown 内容真源；对应 GitBook Space ID 为 `PvV0Wl8B1sGKlplExkQj`。
 - `/data00/mygit/book/` 是多个 Space 共用的 Git 仓库根目录。不要把本 Space 的页面、素材或模板直接写到仓库根目录或其他 Space 的一级目录。
-- GitBook 是后续的阅读与协作入口。修改 GitBook 内容必须先创建变更请求；未经用户明确确认，不得合并变更请求、发布站点或配置同步。
-- 不得在未获用户明确许可的情况下执行 `git commit`、推送远程仓库、删除内容、批量重命名目录，或覆盖用户已有的策划与素材文件。
+- GitBook 是后续的阅读与协作入口。默认流程是：本地内容修改完成后提交并推送 Git，然后创建或更新 GitBook 变更请求，并自动合并发布到正式 GitBook；若用户明确要求“只提交 Git”“只创建草稿”“不要发布”，则按用户要求暂停 GitBook 合并/发布。
+- 不得在未获用户明确许可的情况下删除内容、批量重命名目录，或覆盖用户已有的策划与素材文件；本项目常规内容更新完成后允许自动执行 `git commit` 和推送远程仓库。
 
 ## 目录与命名规则
 
@@ -51,5 +51,5 @@
 ## GitBook 同步规则
 
 - 未来同步时，以本目录作为 GitBook 的 `repoProjectDirectory`，不要将父仓库根目录直接作为单一 Space 的内容根目录。
-- 若通过 GitBook API/CLI 写入页面，先确认 Space 归属 `mhc` 组织（`lZHQ2oggO6j4W45vcGjT`），并仅通过变更请求操作。
-- 创建变更请求后只报告其 ID 和内容摘要；等待用户明确说“合并”后才执行 merge。
+- 若通过 GitBook API/CLI 写入页面，先确认 Space 归属 `mhc` 组织（`lZHQ2oggO6j4W45vcGjT`），并通过变更请求操作。
+- 创建或更新变更请求后，默认继续执行 merge 发布正式 GitBook；仅当用户明确要求只保留草稿、只同步不合并或暂停发布时，才停止在变更请求阶段。
