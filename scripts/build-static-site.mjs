@@ -23,10 +23,10 @@ const pages = markdownFiles.map((sourcePath) => {
 });
 
 const pagesBySource = new Map(pages.map((page) => [page.sourcePath, page]));
-const navHtml = renderNav(pages);
 
 for (const page of pages) {
   const body = renderMarkdown(page.markdown, page.sourcePath, pagesBySource);
+  const navHtml = renderNav(pages, page.sourcePath);
   const html = renderLayout({ title: page.title, body, navHtml, sourcePath: page.sourcePath });
   const absoluteOutputPath = path.join(outputDir, page.outputPath);
   mkdirSync(path.dirname(absoluteOutputPath), { recursive: true });
@@ -42,7 +42,7 @@ writeFileSync(path.join(outputDir, 'site-index.json'), JSON.stringify({
 writeFileSync(path.join(outputDir, 'robots.txt'), 'User-agent: *\nAllow: /\n');
 writeFileSync(path.join(outputDir, '404.html'), renderLayout({
   title: '页面不存在',
-  navHtml,
+  navHtml: renderNav(pages, ''),
   sourcePath: '',
   body: '<h1>页面不存在</h1><p>请从左侧目录重新选择页面。</p>',
 }));
@@ -116,11 +116,107 @@ function outputPathFor(sourcePath) {
   return sourcePath.replace(/\.md$/, '.html');
 }
 
-function renderNav(allPages) {
-  return `<nav class="sidebar-nav">${allPages.map((page) => {
-    const depth = Math.max(0, page.sourcePath.split('/').length - 1);
-    return `<a class="nav-link depth-${Math.min(depth, 5)}" href="${page.url}">${escapeHtml(page.title)}</a>`;
-  }).join('\n')}</nav>`;
+function renderNav(allPages, activeSourcePath) {
+  const tree = buildNavTree(allPages);
+  return `<nav class="sidebar-nav" aria-label="内容目录">${renderNavNode(tree, activeSourcePath, 0)}</nav>`;
+}
+
+function buildNavTree(allPages) {
+  const root = createNavNode('', '', null);
+
+  for (const page of allPages) {
+    const parts = page.sourcePath.split('/');
+    const isReadme = parts.at(-1)?.toLowerCase() === 'readme.md';
+    const dirParts = isReadme ? parts.slice(0, -1) : parts.slice(0, -1);
+    let current = root;
+
+    for (const part of dirParts) {
+      current = getOrCreateChild(current, part, current.path ? `${current.path}/${part}` : part);
+    }
+
+    if (isReadme) {
+      current.page = page;
+      current.title = page.title;
+    } else {
+      const name = path.basename(page.sourcePath, '.md');
+      const childPath = current.path ? `${current.path}/${name}` : name;
+      const child = getOrCreateChild(current, name, childPath);
+      child.page = page;
+      child.title = page.title;
+      child.isFile = true;
+    }
+  }
+
+  sortNavChildren(root);
+  return root;
+}
+
+function createNavNode(name, nodePath, page) {
+  return {
+    name,
+    path: nodePath,
+    title: page?.title ?? humanize(name || siteTitle),
+    page,
+    isFile: false,
+    children: [],
+    childMap: new Map(),
+  };
+}
+
+function getOrCreateChild(parent, name, nodePath) {
+  if (!parent.childMap.has(name)) {
+    const child = createNavNode(name, nodePath, null);
+    parent.childMap.set(name, child);
+    parent.children.push(child);
+  }
+  return parent.childMap.get(name);
+}
+
+function sortNavChildren(node) {
+  node.children.sort((left, right) => {
+    if (left.isFile !== right.isFile) return left.isFile ? 1 : -1;
+    const leftPageRank = left.page ? 0 : 1;
+    const rightPageRank = right.page ? 0 : 1;
+    if (leftPageRank !== rightPageRank) return leftPageRank - rightPageRank;
+    return left.name.localeCompare(right.name, 'zh-CN');
+  });
+  for (const child of node.children) sortNavChildren(child);
+}
+
+function renderNavNode(node, activeSourcePath, depth) {
+  const isRoot = depth === 0;
+  const isActive = node.page?.sourcePath === activeSourcePath;
+  const hasActiveChild = containsActivePage(node, activeSourcePath);
+  const hasChildren = node.children.length > 0;
+  const title = isRoot ? siteTitle : node.title;
+  const href = node.page?.url;
+  const classes = [
+    'nav-link',
+    `depth-${Math.min(depth, 5)}`,
+    isActive ? 'active' : '',
+    hasChildren ? 'folder-link' : 'leaf-link',
+  ].filter(Boolean).join(' ');
+  const link = href
+    ? `<a class="${classes}" href="${href}">${escapeHtml(title)}</a>`
+    : `<span class="${classes}">${escapeHtml(title)}</span>`;
+
+  if (!hasChildren) {
+    return link;
+  }
+
+  const open = isRoot || hasActiveChild || depth <= 1 ? ' open' : '';
+  const children = node.children.map((child) => renderNavNode(child, activeSourcePath, depth + 1)).join('\n');
+
+  return `<details class="nav-node depth-${Math.min(depth, 5)}"${open}>
+  <summary>${link}</summary>
+  <div class="nav-children">${children}</div>
+</details>`;
+}
+
+function containsActivePage(node, activeSourcePath) {
+  if (!activeSourcePath) return false;
+  if (node.page?.sourcePath === activeSourcePath) return true;
+  return node.children.some((child) => containsActivePage(child, activeSourcePath));
 }
 
 function renderLayout({ title, body, navHtml, sourcePath }) {
@@ -347,14 +443,60 @@ a:hover { text-decoration: underline; }
 .brand { color: var(--text); font-weight: 700; }
 .source { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); min-height: calc(100vh - 56px); }
-.sidebar { border-right: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 16px 12px; }
+.sidebar { border-right: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 14px 10px; }
 .sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-link { display: block; padding: 7px 10px; border-radius: 8px; color: #344054; font-size: 14px; line-height: 1.35; }
+.nav-node { margin: 1px 0; }
+.nav-node > summary {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.nav-node > summary::-webkit-details-marker { display: none; }
+.nav-node > summary::before {
+  content: "▸";
+  flex: 0 0 16px;
+  width: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  transform: translateY(-1px);
+}
+.nav-node[open] > summary::before { content: "▾"; }
+.nav-node > summary:hover { background: #eff6ff; }
+.nav-children {
+  margin-left: 10px;
+  padding-left: 9px;
+  border-left: 1px dashed var(--border);
+}
+.nav-link {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: #344054;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .nav-link:hover { background: #eff6ff; text-decoration: none; }
-.depth-1 { padding-left: 22px; }
-.depth-2 { padding-left: 34px; font-size: 13px; }
-.depth-3 { padding-left: 46px; font-size: 13px; }
-.depth-4, .depth-5 { padding-left: 58px; font-size: 12px; color: var(--muted); }
+.nav-link.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+.leaf-link { margin: 1px 0 1px 16px; }
+.leaf-link::before {
+  content: "•";
+  color: var(--muted);
+  margin-right: 6px;
+}
+.folder-link { font-weight: 600; }
+.depth-2 .nav-link, .nav-link.depth-3 { font-size: 13px; }
+.depth-3 .nav-link, .depth-4 .nav-link, .depth-5 .nav-link,
+.nav-link.depth-4, .nav-link.depth-5 { font-size: 12px; color: var(--muted); }
 .content {
   width: min(100%, 980px);
   margin: 0 auto;
