@@ -35,4 +35,12 @@ node scripts/sync-to-gitbook-space.mjs --subject "Sync short-form video planning
 
 脚本默认同步到 mhc 组织下的 **Short-Form Video Content Planning** Space（`PvV0Wl8B1sGKlplExkQj`），并会先校验 Space 属于授权组织 `lZHQ2oggO6j4W45vcGjT`。脚本只创建并填充 GitBook 变更请求，不会自动合并或发布；确认内容无误后，再到 GitBook 后台合并变更请求。
 
+常用参数：
+
+- `--change-request <id>`：续跑并更新已有变更请求。
+- `--skip-existing`：续跑时跳过已存在页面，只补缺失页面。
+- `--delete-stale`：删除变更请求中本地已不存在的旧页面；默认不删除，使用前先 `--dry-run` 核对页面树。
+
+同步时会尽量将 GitBook 页面标题中文化，例如 `Agent Prompt` 会显示为“代理提示词”；文件名和 URL slug 继续保持英文 kebab-case，方便链接稳定。
+
 如果后续改为 GitBook 官方 Git Sync，将父仓库推送到可访问的远程地址后，使用本目录作为 GitBook 的 `repoProjectDirectory` 配置同步，避免本地 Markdown 与 GitBook 页面双向编辑产生冲突。

@@ -62,6 +62,7 @@ const existingTree = options.changeRequest
 const existingPages = flattenPages(existingTree);
 const existingByPath = new Map(existingPages.map((page) => [page.path, page]));
 const knownIds = new Map();
+const desiredPaths = new Set(localPages.map((page) => page.remotePath));
 
 const rootLocalPage = localPages[0];
 const rootExistingPage = pickExistingRootPage(existingPages, rootLocalPage);
@@ -82,50 +83,87 @@ for (const page of localPages) {
 let applied = 0;
 let inserted = 0;
 let updated = 0;
+let skipped = 0;
+let deleted = 0;
 
-for (const page of localPages) {
-  const parentId = page.parentKey ? knownIds.get(page.parentKey) : undefined;
-  if (page.parentKey && !parentId) {
-    fail(`父页面尚未创建，无法同步 ${page.sourcePath}。缺失父页面 key：${page.parentKey}`);
+for (const depth of uniqueDepths(localPages)) {
+  const changes = [];
+  const pageByRef = new Map();
+
+  for (const page of localPages.filter((localPage) => localPage.depth === depth)) {
+    const parentId = page.parentKey ? knownIds.get(page.parentKey) : undefined;
+    if (page.parentKey && !parentId) {
+      fail(`父页面尚未创建，无法同步 ${page.sourcePath}。缺失父页面 key：${page.parentKey}`);
+    }
+
+    const existingId = knownIds.get(page.key);
+    if (options.skipExisting && existingId) {
+      skipped += 1;
+      console.log(`skipped: ${page.sourcePath} -> ${page.remotePath}`);
+      continue;
+    }
+
+    const change = existingId
+      ? {
+          operation: 'update_page',
+          page: existingId,
+          title: page.title,
+          slug: page.slug,
+          document: { markdown: page.markdown },
+          ...(page.parentKey ? { into: parentId } : { into: null }),
+        }
+      : {
+          operation: 'insert_page',
+          ref: page.ref,
+          title: page.title,
+          slug: page.slug,
+          document: { markdown: page.markdown },
+          ...(page.parentKey ? { into: parentId } : {}),
+        };
+
+    changes.push(change);
+    pageByRef.set(page.ref, page);
   }
 
-  const existingId = knownIds.get(page.key);
-  if (options.skipExisting && existingId) {
-    console.log(`skipped: ${page.sourcePath} -> ${page.remotePath}`);
-    continue;
-  }
-  const change = existingId
-    ? {
-        operation: 'update_page',
-        page: existingId,
-        title: page.title,
-        slug: page.slug,
-        document: { markdown: page.markdown },
-        ...(page.parentKey ? { into: parentId } : { into: null }),
+  for (const chunk of chunks(changes, MAX_BATCH_SIZE)) {
+    if (chunk.length === 0) continue;
+    const result = applyChanges(spaceId, changeRequestId, chunk);
+    applied += chunk.length;
+
+    for (const change of chunk) {
+      if (change.operation === 'update_page') {
+        updated += 1;
+      } else if (change.operation === 'insert_page') {
+        inserted += 1;
       }
-    : {
-        operation: 'insert_page',
-        ref: page.ref,
-        title: page.title,
-        slug: page.slug,
-        document: { markdown: page.markdown },
-        ...(page.parentKey ? { into: parentId } : {}),
-      };
+    }
 
-  const result = applyChanges(spaceId, changeRequestId, [change]);
-  applied += 1;
-  if (existingId) {
-    updated += 1;
-  } else {
-    inserted += 1;
-    const created = findCreatedPage(result, page.ref);
-    if (!created?.id) {
+    for (const created of findCreatedPages(result)) {
+      const page = pageByRef.get(created.ref);
+      if (!page || !created.page?.id) continue;
+      knownIds.set(page.key, created.page.id);
+    }
+
+    for (const change of chunk) {
+      if (change.operation !== 'insert_page') continue;
+      const page = pageByRef.get(change.ref);
+      if (!page || knownIds.has(page.key)) continue;
       fail(`已插入 ${page.sourcePath}，但未能从响应中解析新页面 ID：${JSON.stringify(result, null, 2)}`);
     }
-    knownIds.set(page.key, created.id);
-  }
 
-  console.log(`${existingId ? 'updated' : 'inserted'}: ${page.sourcePath} -> ${page.remotePath}`);
+    console.log(`applied batch depth=${depth} size=${chunk.length}`);
+  }
+}
+
+if (options.deleteStale) {
+  const latestPages = flattenPages(listChangeRequestPages(spaceId, changeRequestId));
+  const stalePages = topMostStalePages(latestPages, desiredPaths, rootLocalPage.remotePath);
+  for (const chunk of chunks(stalePages.map((page) => ({ operation: 'delete_page', page: page.id })), MAX_BATCH_SIZE)) {
+    if (chunk.length === 0) continue;
+    applyChanges(spaceId, changeRequestId, chunk);
+    deleted += chunk.length;
+    console.log(`deleted stale batch size=${chunk.length}`);
+  }
 }
 
 console.log('');
@@ -134,6 +172,8 @@ console.log(`- Change request: ${changeRequestId}`);
 console.log(`- Applied pages: ${applied}`);
 console.log(`- Inserted pages: ${inserted}`);
 console.log(`- Updated pages: ${updated}`);
+console.log(`- Skipped pages: ${skipped}`);
+console.log(`- Deleted stale pages: ${deleted}`);
 console.log('- Merge was NOT executed by this script. Review the change request, then merge explicitly in GitBook.');
 
 function parseArgs(args) {
@@ -148,6 +188,7 @@ function parseArgs(args) {
     else if (arg === '--subject') parsed.subject = takeValue(args, ++index, arg);
     else if (arg === '--change-request') parsed.changeRequest = takeValue(args, ++index, arg);
     else if (arg === '--skip-existing') parsed.skipExisting = true;
+    else if (arg === '--delete-stale') parsed.deleteStale = true;
     else fail(`未知参数：${arg}`);
   }
   return parsed;
@@ -162,7 +203,7 @@ function takeValue(args, index, flag) {
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/sync-to-gitbook-space.mjs [options]\n\n同步当前项目 Markdown 到 mhc 组织的 GitBook Space。脚本只创建并填充变更请求，不会自动合并或发布。\n\nOptions:\n  --dry-run           只打印将要同步的页面树，不创建变更请求\n  --root <path>       Markdown 项目根目录，默认当前目录\n  --org <id>          GitBook 组织 ID，默认 ${DEFAULT_ORG_ID}\n  --space <id>        GitBook Space ID，默认 ${DEFAULT_SPACE_ID}\n  --subject <text>    变更请求标题\n  -h, --help          显示帮助\n`);
+  console.log(`Usage: node scripts/sync-to-gitbook-space.mjs [options]\n\n同步当前项目 Markdown 到 mhc 组织的 GitBook Space。脚本只创建并填充变更请求，不会自动合并或发布。\n\nOptions:\n  --dry-run              只打印将要同步的页面树，不创建变更请求\n  --root <path>          Markdown 项目根目录，默认当前目录\n  --org <id>             GitBook 组织 ID，默认 ${DEFAULT_ORG_ID}\n  --space <id>           GitBook Space ID，默认 ${DEFAULT_SPACE_ID}\n  --subject <text>       变更请求标题\n  --change-request <id>  续跑并更新已有变更请求\n  --skip-existing        和 --change-request 一起使用时，只插入缺失页面\n  --delete-stale         删除变更请求中本地已不存在的页面（默认不删除）\n  -h, --help             显示帮助\n`);
 }
 
 function confirmSpaceOwnership(orgId, targetSpaceId) {
@@ -197,7 +238,7 @@ function buildLocalPages(rootDir) {
     const parentKey = dir ? pageKeyForReadme(parentDir === '.' ? '' : parentDir) : null;
     const slug = dir ? slugify(path.basename(dir)) : slugify(projectName(rootDir));
     const markdown = hasReadme
-      ? normalizeMarkdown(readFileSync(path.join(rootDir, readmePath), 'utf8'))
+      ? normalizeMarkdownForGitBook(readFileSync(path.join(rootDir, readmePath), 'utf8'))
       : syntheticDirectoryMarkdown(dir);
     const title = firstHeading(markdown) ?? humanizeSlug(slug);
     pagesByKey.set(key, {
@@ -218,7 +259,7 @@ function buildLocalPages(rootDir) {
     const key = file.replace(/\.md$/i, '');
     const parentKey = pageKeyForReadme(dir);
     const slug = slugify(path.basename(file, path.extname(file)));
-    const markdown = normalizeMarkdown(readFileSync(path.join(rootDir, file), 'utf8'));
+    const markdown = normalizeMarkdownForGitBook(readFileSync(path.join(rootDir, file), 'utf8'));
     const title = firstHeading(markdown) ?? humanizeSlug(slug);
     pagesByKey.set(key, {
       key,
@@ -348,6 +389,39 @@ function normalizeMarkdown(markdown) {
   return markdown.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd() + '\n';
 }
 
+function normalizeMarkdownForGitBook(markdown) {
+  return localizeFirstHeading(normalizeMarkdown(markdown));
+}
+
+function localizeFirstHeading(markdown) {
+  const lines = markdown.split('\n');
+  if (!lines[0]?.startsWith('# ')) return markdown;
+
+  const originalTitle = lines[0].slice(2).trim();
+  const translatedTitle = translateTitle(originalTitle);
+  if (translatedTitle === originalTitle) return markdown;
+
+  lines[0] = `# ${translatedTitle}`;
+  return lines.join('\n');
+}
+
+function translateTitle(title) {
+  const exactTitles = new Map([
+    ['Short-Form Video Content Planning', '短视频内容策划'],
+    ['AI Office Productivity', 'AI 办公提效'],
+    ['Mother & Baby Wellness', '母婴和养生赛道'],
+    ['Templates', '模板'],
+    ['Agent Prompts', '代理提示词'],
+    ['Prompts', '代理提示词'],
+    ['Agent Prompt：<任务名称>', '代理提示词：<任务名称>'],
+    ['第 <nnn> 期：<主题>', '第 <期次编号> 期：<主题>'],
+    ['视频 <nnn>：<标题或选题>', '视频 <视频编号>：<标题或选题>'],
+  ]);
+
+  if (exactTitles.has(title)) return exactTitles.get(title);
+  return title.replace(/^Agent Prompt：/, '代理提示词：');
+}
+
 function firstHeading(markdown) {
   const match = markdown.match(/^#\s+(.+)$/m);
   return match?.[1]?.trim();
@@ -443,6 +517,41 @@ function findCreatedPage(result, ref) {
   const changes = Array.isArray(result.changes) ? result.changes : [];
   const created = changes.find((change) => change.object === 'created_page' && change.ref === ref);
   return created?.page;
+}
+
+function findCreatedPages(result) {
+  const changes = Array.isArray(result.changes) ? result.changes : [];
+  return changes.filter((change) => change.object === 'created_page');
+}
+
+function uniqueDepths(pages) {
+  return [...new Set(pages.map((page) => page.depth))].sort((left, right) => left - right);
+}
+
+function chunks(items, size) {
+  const output = [];
+  for (let index = 0; index < items.length; index += size) {
+    output.push(items.slice(index, index + size));
+  }
+  return output;
+}
+
+function topMostStalePages(pages, desiredPaths, rootPath) {
+  const stalePages = pages.filter((page) => {
+    const pagePath = page.path ?? '';
+    const inRoot = pagePath === rootPath || pagePath.startsWith(`${rootPath}/`);
+    return inRoot && !desiredPaths.has(pagePath);
+  });
+  const stalePaths = new Set(stalePages.map((page) => page.path));
+  return stalePages.filter((page) => {
+    const parts = page.path.split('/');
+    for (let index = 1; index < parts.length; index += 1) {
+      if (stalePaths.has(parts.slice(0, index).join('/'))) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 function printPlan(pages) {
