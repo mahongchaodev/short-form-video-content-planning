@@ -8,6 +8,7 @@ Thumbs.db
 .env
 .env.*
 *.tmp
+public/
 
 # Do not commit rendered or downloaded copies of large source media by default.
 # Keep an asset index Markdown file in each assets/ directory instead.

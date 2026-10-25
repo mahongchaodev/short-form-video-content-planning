@@ -1,0 +1,11 @@
+{
+  "name": "short-form-video-content-planning",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:site": "node scripts/build-static-site.mjs",
+    "image:build": "bash scripts/build-and-push-image.sh --no-push",
+    "image:push": "bash scripts/build-and-push-image.sh"
+  }
+}
