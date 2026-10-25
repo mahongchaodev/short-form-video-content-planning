@@ -1,0 +1,15 @@
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local secrets and temporary exports
+.env
+.env.*
+*.tmp
+
+# Do not commit rendered or downloaded copies of large source media by default.
+# Keep an asset index Markdown file in each assets/ directory instead.
+*/assets/raw/
+*/assets/rendered/
