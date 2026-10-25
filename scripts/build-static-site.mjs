@@ -204,7 +204,8 @@ function renderNavNode(node, activeSourcePath, depth) {
     return link;
   }
 
-  const open = isRoot || hasActiveChild || depth <= 1 ? ' open' : '';
+  const shouldOpenByDefault = depth <= 1 && node.path !== 'templates';
+  const open = isRoot || hasActiveChild || shouldOpenByDefault ? ' open' : '';
   const children = node.children.map((child) => renderNavNode(child, activeSourcePath, depth + 1)).join('\n');
 
   return `<details class="nav-node depth-${Math.min(depth, 5)}"${open}>
